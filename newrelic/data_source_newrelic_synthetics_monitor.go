@@ -8,6 +8,8 @@ import (
 	"github.com/hashicorp/terraform/helper/schema"
 )
 
+const monitorsRequestLimit = 100
+
 func dataSourceNewRelicSyntheticsMonitor() *schema.Resource {
 	return &schema.Resource{
 		Read: dataSourceNewRelicSyntheticsMonitorRead,
@@ -23,11 +25,6 @@ func dataSourceNewRelicSyntheticsMonitor() *schema.Resource {
 				DefaultFunc: schema.EnvDefaultFunc("NEWRELIC_API_KEY", nil),
 				Sensitive:   true,
 			},
-			"max_check": {
-				Type:     schema.TypeInt,
-				Optional: true,
-				Default:  1000,
-			},
 		},
 	}
 }
@@ -35,7 +32,6 @@ func dataSourceNewRelicSyntheticsMonitor() *schema.Resource {
 func dataSourceNewRelicSyntheticsMonitorRead(d *schema.ResourceData, meta interface{}) error {
 
 	apiKey := d.Get("api_key").(string)
-	maxCheck := d.Get("max_check").(int)
 
 	conf := func(s *synthetics.Client) {
 		s.APIKey = apiKey
@@ -45,39 +41,29 @@ func dataSourceNewRelicSyntheticsMonitorRead(d *schema.ResourceData, meta interf
 
 	log.Printf("[INFO] Reading New Relic synthetics monitors")
 
-	offset := 0
-	max := 100
-	monitors, err := syntheticsClient.GetAllMonitors(uint(offset), uint(max))
-	var monitor *synthetics.ExtendedMonitor
 	name := d.Get("name").(string)
-	for offset <= maxCheck {
-		if len(monitors.Monitors) > 0 && err == nil {
-			mon := *monitors
+	offset := uint(0)
+	for {
+		monitors, err := syntheticsClient.GetAllMonitors(offset, monitorsRequestLimit)
+		if err != nil {
+			return err
+		}
 
-			for i := 0; i < len(monitors.Monitors); i++ {
-				if mon.Monitors[i].Name == name {
-					monitor = mon.Monitors[i]
-					break
-				}
+		for _, monitor := range monitors.Monitors {
+			if monitor.Name == name {
+				d.SetId(monitor.ID)
+				d.Set("name", monitor.Name)
+				d.Set("monitor_id", monitor.ID)
+				return nil
 			}
-		} else {
+		}
+
+		if len(monitors.Monitors) < monitorsRequestLimit {
 			break
 		}
 
 		offset = offset + 100
-		monitors, err = syntheticsClient.GetAllMonitors(uint(offset), uint(max))
-	}
-	if err != nil {
-		return err
 	}
 
-	if monitor == nil {
-		return fmt.Errorf("The name '%s' does not match any New Relic monitors.", name)
-	}
-
-	d.SetId(monitor.ID)
-	d.Set("name", monitor.Name)
-	d.Set("monitor_id", monitor.ID)
-
-	return nil
+	return fmt.Errorf("The name '%s' does not match any New Relic monitors.", name)
 }

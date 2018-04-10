@@ -53,7 +53,6 @@ func dataSourceNewRelicSyntheticsMonitorRead(d *schema.ResourceData, meta interf
 			if monitor.Name == name {
 				d.SetId(monitor.ID)
 				d.Set("name", monitor.Name)
-				d.Set("monitor_id", monitor.ID)
 				return nil
 			}
 		}
